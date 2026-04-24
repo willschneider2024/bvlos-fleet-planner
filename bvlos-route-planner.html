@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BVLOS Fleet Planner — Drone Force</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #181c23;
+    --border: #232830;
+    --border2: #2e3440;
+    --accent: #00e5a0;
+    --accent2: #00b87a;
+    --warn: #ffb800;
+    --danger: #ff4444;
+    --info: #4da6ff;
+    --starlink: #a78bfa;
+    --text: #e8ecf0;
+    --text2: #8a95a3;
+    --text3: #4a5568;
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  .logo { font-family: var(--mono); font-size: 13px; color: var(--accent); letter-spacing: 0.05em; }
+  .logo span { color: var(--text2); }
+  .logo small { font-size: 10px; color: var(--text3); margin-left: 6px; }
+  .topbar-spacer { flex: 1; }
+  .status-chip { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border2); border-radius: 20px; font-size: 11px; font-family: var(--mono); color: var(--text2); }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); transition: background 0.3s; }
+  .status-dot.green { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .status-dot.amber { background: var(--warn); box-shadow: 0 0 6px var(--warn); animation: pulse 1.2s infinite; }
+  .status-dot.red { background: var(--danger); }
+  .status-dot.purple { background: var(--starlink); box-shadow: 0 0 6px var(--starlink); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; color: var(--text2); font-family: var(--sans); font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { background: var(--accent2); }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: rgba(255,68,68,0.1); }
+  .btn.purple { border-color: var(--starlink); color: var(--starlink); }
+  .btn.purple:hover { background: rgba(167,139,250,0.1); }
+
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+  #canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  .canvas-overlay { position: absolute; bottom: 12px; left: 12px; font-family: var(--mono); font-size: 10px; color: var(--text3); pointer-events: none; line-height: 2; }
+  .canvas-overlay span { color: var(--text2); }
+
+  /* ─── TABS ─── */
+  .panel { width: 310px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab { flex: 1; padding: 8px 4px; text-align: center; font-size: 11px; font-family: var(--mono); color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; flex: 1; overflow-y: auto; flex-direction: column; }
+  .tab-content.active { display: flex; }
+
+  .panel-section { border-bottom: 1px solid var(--border); padding: 12px 14px; flex-shrink: 0; }
+  .panel-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--text3); text-transform: uppercase; margin-bottom: 8px; }
+
+  /* ─── DRONE CARDS ─── */
+  .drone-card {
+    margin: 8px 14px; border-radius: 8px; border: 1px solid var(--border2);
+    background: var(--surface2); overflow: hidden; cursor: pointer; transition: border-color 0.15s;
+    flex-shrink: 0;
+  }
+  .drone-card:hover { border-color: var(--border2); }
+  .drone-card.selected { border-color: var(--accent); }
+  .drone-card.flying { border-color: var(--warn); }
+  .drone-card-header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .drone-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .drone-name { font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
+  .drone-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-family: var(--mono); }
+  .drone-badge.online { background: rgba(0,229,160,0.15); color: var(--accent); }
+  .drone-badge.offline { background: rgba(74,85,104,0.3); color: var(--text3); }
+  .drone-badge.flying { background: rgba(255,184,0,0.15); color: var(--warn); }
+  .drone-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 8px 10px; }
+  .drone-meta-item { display: flex; flex-direction: column; }
+  .drone-meta-label { font-size: 10px; color: var(--text3); }
+  .drone-meta-val { font-family: var(--mono); font-size: 12px; color: var(--text2); }
+  .drone-link-row { padding: 6px 10px 8px; display: flex; align-items: center; gap: 6px; }
+  .link-bar-bg { flex: 1; height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+  .link-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .link-label { font-size: 10px; font-family: var(--mono); color: var(--text3); width: 28px; text-align: right; }
+
+  /* ─── ADD DRONE FORM ─── */
+  .add-drone-form { margin: 8px 14px; padding: 10px; border: 1px dashed var(--border2); border-radius: 8px; flex-shrink: 0; }
+  .form-row { margin-bottom: 8px; }
+  .form-label { font-size: 11px; color: var(--text3); margin-bottom: 4px; display: block; }
+  select, input[type=text] {
+    width: 100%; background: var(--bg); border: 1px solid var(--border2); border-radius: 5px;
+    color: var(--text); padding: 5px 8px; font-size: 12px; font-family: var(--sans); outline: none;
+  }
+  select:focus, input[type=text]:focus { border-color: var(--accent); }
+  select option { background: var(--bg); }
+
+  /* ─── METRICS ─── */
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .metric { background: var(--surface2); border-radius: 6px; padding: 7px 9px; border: 1px solid var(--border); }
+  .metric-label { font-size: 10px; color: var(--text3); margin-bottom: 2px; }
+  .metric-val { font-family: var(--mono); font-size: 15px; color: var(--text); }
+  .metric-val.ok { color: var(--accent); }
+  .metric-val.warn { color: var(--warn); }
+  .metric-val.bad { color: var(--danger); }
+
+  /* ─── SLIDERS ─── */
+  .slider-row { display: flex; flex-direction: column; gap: 8px; }
+  .slider-item { display: flex; flex-direction: column; gap: 3px; }
+  .slider-header { display: flex; justify-content: space-between; }
+  .slider-name { font-size: 12px; color: var(--text2); }
+  .slider-val { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  input[type=range] { width: 100%; -webkit-appearance: none; height: 3px; background: var(--border2); border-radius: 2px; outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid var(--bg); }
+
+  /* ─── MISC ─── */
+  .mode-row { display: flex; gap: 5px; margin-bottom: 8px; }
+  .mode-btn { flex: 1; padding: 5px 3px; border-radius: 5px; border: 1px solid var(--border2); background: transparent; color: var(--text3); font-size: 10px; cursor: pointer; font-family: var(--mono); transition: all 0.15s; }
+  .mode-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text3); }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .battery-wrap { margin-top: 6px; }
+  .battery-bar-bg { height: 5px; background: var(--border2); border-radius: 3px; overflow: hidden; }
+  .battery-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s, background 0.3s; }
+  .battery-label { display: flex; justify-content: space-between; margin-top: 3px; font-size: 10px; color: var(--text3); }
+  .wind-display { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .wind-compass { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border2); position: relative; flex-shrink: 0; background: var(--surface2); }
+  .wind-arrow { position: absolute; top: 50%; left: 50%; width: 2px; height: 14px; background: var(--info); transform-origin: bottom center; transform: translateX(-50%) translateY(-100%); transition: transform 0.5s; border-radius: 1px; }
+  .wind-arrow::before { content: ''; position: absolute; top: -3px; left: -3px; border-left: 3px solid transparent; border-right: 3px solid transparent; border-bottom: 5px solid var(--info); }
+  .wind-info { font-family: var(--mono); font-size: 10px; color: var(--text2); line-height: 1.9; }
+  .hazard-item { display: flex; align-items: flex-start; gap: 7px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+  .hazard-item:last-child { border-bottom: none; }
+  .hazard-icon { font-size: 13px; flex-shrink: 0; }
+  .hazard-text { color: var(--text2); line-height: 1.4; }
+  .hazard-text strong { color: var(--warn); font-weight: 500; }
+  .no-hazards { color: var(--accent); font-size: 11px; text-align: center; padding: 10px 0; }
+  .wp-item { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+  .wp-item:last-child { border-bottom: none; }
+  .wp-num { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 9px; color: #000; font-weight: 700; flex-shrink: 0; }
+  .wp-coords { color: var(--text2); font-family: var(--mono); font-size: 10px; flex: 1; }
+  .wp-remove { color: var(--text3); cursor: pointer; font-size: 14px; line-height: 1; }
+  .wp-remove:hover { color: var(--danger); }
+  .wp-empty { color: var(--text3); font-size: 11px; text-align: center; padding: 10px 0; }
+
+  /* ─── MESH NETWORK PANEL ─── */
+  .mesh-node { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .mesh-node:last-child { border-bottom: none; }
+  .mesh-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .mesh-info { flex: 1; }
+  .mesh-name { font-size: 12px; color: var(--text); }
+  .mesh-detail { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+  .mesh-latency { font-family: var(--mono); font-size: 11px; }
+  .mesh-latency.good { color: var(--accent); }
+  .mesh-latency.ok { color: var(--warn); }
+  .mesh-latency.bad { color: var(--danger); }
+  .starlink-bar { background: linear-gradient(90deg, rgba(167,139,250,0.15), rgba(167,139,250,0.05)); border: 1px solid rgba(167,139,250,0.3); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+  .starlink-title { font-family: var(--mono); font-size: 11px; color: var(--starlink); margin-bottom: 4px; }
+  .starlink-stats { display: flex; gap: 12px; }
+  .starlink-stat { display: flex; flex-direction: column; }
+  .starlink-stat-label { font-size: 10px; color: var(--text3); }
+  .starlink-stat-val { font-family: var(--mono); font-size: 13px; color: var(--starlink); }
+
+  /* ─── TOAST / SIM DRONE ─── */
+  .toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border2); padding: 7px 14px; border-radius: 6px; font-size: 11px; font-family: var(--mono); color: var(--text2); pointer-events: none; opacity: 0; transition: opacity 0.3s; white-space: nowrap; z-index: 10; }
+  .toast.show { opacity: 1; }
+  .sim-drone-el { position: absolute; border-radius: 50%; transform: translate(-50%,-50%); pointer-events: none; display: none; transition: none; }
+
+  /* ─── COMM LOG ─── */
+  .log-entry { padding: 4px 0; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; color: var(--text3); display: flex; gap: 6px; }
+  .log-entry .log-time { color: var(--text3); flex-shrink: 0; }
+  .log-entry .log-msg { color: var(--text2); }
+  .log-entry.log-warn .log-msg { color: var(--warn); }
+  .log-entry.log-ok .log-msg { color: var(--accent); }
+  .log-entry.log-starlink .log-msg { color: var(--starlink); }
+  #commLog { max-height: 200px; overflow-y: auto; }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">DRONE<span>FORCE</span> // BVLOS FLEET PLANNER <small>v2.0</small></div>
+  <div class="topbar-spacer"></div>
+  <div class="status-chip" id="starlinkChip">
+    <div class="status-dot purple"></div><span>STARLINK ✓</span>
+  </div>
+  <div class="status-chip">
+    <div class="status-dot green" id="statusDot"></div><span id="statusText">READY</span>
+  </div>
+  <button class="btn" onclick="clearAll()">Clear</button>
+  <button class="btn primary" id="simBtn" onclick="toggleSim()">▶ Simulate Fleet</button>
+</div>
+
+<div class="main">
+  <div class="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div class="canvas-overlay">
+      mode: <span id="modeLabel">waypoint</span> &nbsp;·&nbsp; <span id="coordDisplay">—</span><br>
+      active drone: <span id="activeDroneLabel">—</span>
+    </div>
+    <div class="toast" id="toast"></div>
+    <!-- sim drones injected by JS -->
+  </div>
+
+  <div class="panel">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('fleet')">Fleet</div>
+      <div class="tab" onclick="switchTab('route')">Route</div>
+      <div class="tab" onclick="switchTab('mesh')">Mesh</div>
+      <div class="tab" onclick="switchTab('log')">Log</div>
+    </div>
+
+    <!-- ═══ FLEET TAB ═══ -->
+    <div class="tab-content active" id="tab-fleet">
+      <div class="panel-section">
+        <div class="panel-label">Active Fleet (<span id="fleetCount">0</span> drones)</div>
+        <div class="mode-row">
+          <button class="mode-btn active" id="modeWP" onclick="setMode('waypoint')">Waypoint</button>
+          <button class="mode-btn" id="modeNFZ" onclick="setMode('nfz')">No-Fly</button>
+          <button class="mode-btn" id="modeOBS" onclick="setMode('obstacle')">Obstacle</button>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Waypoint</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff4444;opacity:0.5"></div>NFZ</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff8c00;border-radius:2px"></div>Obstacle</div>
+        </div>
+      </div>
+
+      <div id="droneCardList"></div>
+
+      <!-- Add Drone -->
+      <div class="add-drone-form" style="margin-top:4px;">
+        <div class="panel-label" style="margin-bottom:6px;">Add drone to fleet</div>
+        <div class="form-row">
+          <label class="form-label">Make / Model</label>
+          <select id="droneModel">
+            <optgroup label="US — NDAA Compliant">
+              <option value="skydio_x10">Skydio X10 (quadrotor)</option>
+              <option value="freefly_alta_x">Freefly Alta X (octorotor)</option>
+              <option value="inspired_if750i">Inspired Flight IF750i</option>
+              <option value="zipline_p2">Zipline Platform 2 (fixed-wing)</option>
+              <option value="shield_ai_nova">Shield AI Nova 2</option>
+              <option value="joby_cargo">Joby Cargo UAS</option>
+            </optgroup>
+            <optgroup label="EU / Allies">
+              <option value="parrot_anafi_ai">Parrot ANAFI AI</option>
+              <option value="wingtra_one">WingtraOne GEN II (VTOL)</option>
+              <option value="quantum_systems_trinity">Quantum Systems Trinity F90+</option>
+            </optgroup>
+            <optgroup label="Custom / Open">
+              <option value="custom_quad">Custom Quadrotor</option>
+              <option value="custom_fixed">Custom Fixed-Wing</option>
+              <option value="custom_vtol">Custom VTOL</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Call sign</label>
+          <input type="text" id="droneCallsign" placeholder="e.g. ALPHA-1" maxlength="10">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Link type</label>
+          <select id="droneLinkType">
+            <option value="starlink">Starlink (low-latency)</option>
+            <option value="starlink_priority">Starlink Priority (business)</option>
+            <option value="lte_5g">5G LTE</option>
+            <option value="mesh_rf">Mesh RF (900MHz)</option>
+            <option value="satellite_iridium">Iridium Satellite</option>
+          </select>
+        </div>
+        <button class="btn primary" style="width:100%;margin-top:4px;" onclick="addDrone()">+ Add to Fleet</button>
+      </div>
+    </div>
+
+    <!-- ═══ ROUTE TAB ═══ -->
+    <div class="tab-content" id="tab-route">
+      <div class="panel-section">
+        <div class="panel-label">Environment</div>
+        <div class="slider-row">
+          <div class="slider-item">
+            <div class="slider-header"><span class="slider-name">Wind speed</span><span class="slider-val" id="windSpeedVal">8 m/s</span></div>
+            <input type="range" min="0" max="25" value="8" id="windSpeed" oninput="updateEnv()">
+          </div>
+          <div class="slider-item">
+            <div class="slider-header"><span class="slider-name">Wind direction</span><span class="slider-val" id="windDirVal">NW</span></div>
+            <input type="range" min="0" max="360" value="315" id="windDir" oninput="updateEnv()">
+          </div>
+          <div class="slider-item">
+            <div class="slider-header"><span class="slider-name">Cruise altitude</span><span class="slider-val" id="altVal">120 m</span></div>
+            <input type="range" min="30" max="400" value="120" id="altitude" oninput="updateMetrics()">
+          </div>
+          <div class="slider-item">
+            <div class="slider-header"><span class="slider-name">Payload</span><span class="slider-val" id="payloadVal">1.2 kg</span></div>
+            <input type="range" min="0" max="10" step="0.1" value="1.2" id="payload" oninput="updateMetrics()">
+          </div>
+        </div>
+        <div class="wind-display">
+          <div class="wind-compass"><div class="wind-arrow" id="windArrow"></div></div>
+          <div class="wind-info" id="windInfo">Speed: 8 m/s<br>Dir: 315° NW<br>Beaufort: 4</div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Flight Metrics</div>
+        <div class="metrics-grid">
+          <div class="metric"><div class="metric-label">Total distance</div><div class="metric-val ok" id="mDist">—</div></div>
+          <div class="metric"><div class="metric-label">Flight time</div><div class="metric-val" id="mTime">—</div></div>
+          <div class="metric"><div class="metric-label">Energy</div><div class="metric-val" id="mEnergy">—</div></div>
+          <div class="metric"><div class="metric-label">Waypoints</div><div class="metric-val ok" id="mWP">0</div></div>
+        </div>
+        <div class="battery-wrap">
+          <div class="battery-label"><span>Battery usage</span><span id="battPct">—</span></div>
+          <div class="battery-bar-bg"><div class="battery-bar-fill" id="battBar" style="width:0%"></div></div>
+          <div class="battery-label"><span>0%</span><span>100% (5000mAh)</span></div>
+        </div>
+      </div>
+      <div class="panel-section" style="flex:1;">
+        <div class="panel-label">Hazard Analysis</div>
+        <div id="hazardList"><div class="no-hazards">No hazards detected</div></div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Waypoints (<span id="wpCount">0</span>)</div>
+        <div style="max-height:120px;overflow-y:auto;">
+          <div id="wpList"><div class="wp-empty">Select a drone, then click to place waypoints</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MESH TAB ═══ -->
+    <div class="tab-content" id="tab-mesh">
+      <div class="panel-section">
+        <div class="starlink-bar">
+          <div class="starlink-title">◉ STARLINK MESH ACTIVE</div>
+          <div class="starlink-stats">
+            <div class="starlink-stat"><div class="starlink-stat-label">Satellites</div><div class="starlink-stat-val" id="slSats">12</div></div>
+            <div class="starlink-stat"><div class="starlink-stat-label">Downlink</div><div class="starlink-stat-val" id="slDown">287 Mbps</div></div>
+            <div class="starlink-stat"><div class="starlink-stat-label">Latency</div><div class="starlink-stat-val" id="slLatency">28ms</div></div>
+          </div>
+        </div>
+        <div class="panel-label">Mesh topology — how drones connect</div>
+        <div style="font-size:11px;color:var(--text3);line-height:1.7;margin-bottom:8px;">
+          Each drone runs an onboard computer (Jetson Orin / RPi CM4) and connects to a Starlink flat-panel terminal. Drones relay telemetry, video, and MAVLink commands through the Starlink constellation. RF mesh (900MHz) provides fallback when Starlink is degraded.
+        </div>
+        <div id="meshNodeList"><div class="wp-empty">Add drones in Fleet tab to see mesh</div></div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Inter-drone data links</div>
+        <div id="linkMatrix"><div class="wp-empty">No active links</div></div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Link legend</div>
+        <div class="legend" style="flex-direction:column;gap:5px;">
+          <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Starlink uplink</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#4da6ff"></div>Inter-drone relay (MAVLink bridge)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>RF mesh fallback</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ffb800"></div>Degraded / failover active</div>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-label">Onboard computer specs</div>
+        <div style="font-size:11px;color:var(--text2);line-height:1.9;font-family:var(--mono);">
+          NVIDIA Jetson Orin NX<br>
+          <span style="color:var(--text3)">→ 70 TOPS AI, 16GB RAM</span><br>
+          RPi Compute Module 4<br>
+          <span style="color:var(--text3)">→ Fallback / secondary</span><br>
+          MAVLink 2.0 + ROS2<br>
+          <span style="color:var(--text3)">→ Protocol standard</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ LOG TAB ═══ -->
+    <div class="tab-content" id="tab-log">
+      <div class="panel-section" style="flex:1;">
+        <div class="panel-label" style="display:flex;justify-content:space-between;">
+          <span>Comms log</span>
+          <span style="cursor:pointer;color:var(--text3)" onclick="clearLog()">clear</span>
+        </div>
+        <div id="commLog"></div>
+      </div>
+    </div>
+
+  </div><!-- end panel -->
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const wrap = canvas.parentElement;
+
+// ─── DRONE MODELS DATABASE ───
+const DRONE_SPECS = {
+  skydio_x10:       { name:'Skydio X10',         type:'quad',   color:'#00e5a0', icon:'🚁', battery:5200,  voltage:22.2, basePower:160, maxPayload:2.3,  maxSpeed:18, ndaa:true  },
+  freefly_alta_x:   { name:'Freefly Alta X',      type:'octo',   color:'#4da6ff', icon:'⬡',  battery:16000, voltage:44.4, basePower:480, maxPayload:15.0, maxSpeed:14, ndaa:true  },
+  inspired_if750i:  { name:'Inspired IF750i',     type:'hex',    color:'#a78bfa', icon:'✦',  battery:6000,  voltage:22.2, basePower:200, maxPayload:3.5,  maxSpeed:16, ndaa:true  },
+  zipline_p2:       { name:'Zipline P2',          type:'fixed',  color:'#f97316', icon:'✈',  battery:8000,  voltage:44.4, basePower:120, maxPayload:1.8,  maxSpeed:38, ndaa:true  },
+  shield_ai_nova:   { name:'Shield AI Nova 2',    type:'quad',   color:'#ef4444', icon:'◈',  battery:4800,  voltage:22.2, basePower:180, maxPayload:2.0,  maxSpeed:20, ndaa:true  },
+  joby_cargo:       { name:'Joby Cargo UAS',      type:'vtol',   color:'#10b981', icon:'◉',  battery:12000, voltage:48.0, basePower:350, maxPayload:10.0, maxSpeed:22, ndaa:true  },
+  parrot_anafi_ai:  { name:'Parrot ANAFI AI',     type:'quad',   color:'#60a5fa', icon:'◇',  battery:3400,  voltage:11.1, basePower:80,  maxPayload:0.5,  maxSpeed:15, ndaa:false },
+  wingtra_one:      { name:'WingtraOne GEN II',   type:'vtol',   color:'#fbbf24', icon:'▷',  battery:9000,  voltage:44.4, basePower:200, maxPayload:0.8,  maxSpeed:20, ndaa:false },
+  quantum_trinity:  { name:'Quantum Trinity F90', type:'vtol',   color:'#f472b6', icon:'⊕',  battery:10000, voltage:44.4, basePower:180, maxPayload:1.0,  maxSpeed:22, ndaa:false },
+  custom_quad:      { name:'Custom Quadrotor',    type:'quad',   color:'#94a3b8', icon:'⊞',  battery:5000,  voltage:22.2, basePower:180, maxPayload:5.0,  maxSpeed:15, ndaa:false },
+  custom_fixed:     { name:'Custom Fixed-Wing',   type:'fixed',  color:'#94a3b8', icon:'▷',  battery:8000,  voltage:44.4, basePower:110, maxPayload:3.0,  maxSpeed:35, ndaa:false },
+  custom_vtol:      { name:'Custom VTOL',         type:'vtol',   color:'#94a3b8', icon:'⊙',  battery:10000, voltage:44.4, basePower:200, maxPayload:7.0,  maxSpeed:20, ndaa:false },
+};
+
+const LINK_SPECS = {
+  starlink:           { name:'Starlink',          latency:28,  bandwidth:287, color:'#a78bfa', reliable:0.98 },
+  starlink_priority:  { name:'Starlink Priority', latency:18,  bandwidth:500, color:'#c4b5fd', reliable:0.995 },
+  lte_5g:             { name:'5G LTE',            latency:15,  bandwidth:150, color:'#4da6ff', reliable:0.92 },
+  mesh_rf:            { name:'Mesh RF 900MHz',    latency:5,   bandwidth:1,   color:'#00e5a0', reliable:0.85 },
+  satellite_iridium:  { name:'Iridium',           latency:450, bandwidth:0.1, color:'#fbbf24', reliable:0.99 },
+};
+
+// ─── STATE ───
+let fleet = []; // {id, callsign, modelKey, spec, linkType, waypoints, simT, simEl, battPct, status}
+let selectedDroneId = null;
+let nfzZones = [];
+let obstacles = [];
+let mode = 'waypoint';
+let simRunning = false;
+let simAnimId = null;
+let nextDroneId = 1;
+let logEntries = [];
+
+const SCALE = 2;
+
+function resize() { canvas.width = wrap.offsetWidth; canvas.height = wrap.offsetHeight; draw(); }
+window.addEventListener('resize', resize);
+resize();
+
+// ─── CANVAS INPUT ───
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  document.getElementById('coordDisplay').textContent = `${(mx*SCALE/1000).toFixed(2)}km E  ${(my*SCALE/1000).toFixed(2)}km N`;
+});
+
+canvas.addEventListener('click', e => {
+  if (simRunning) return;
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (mode === 'waypoint') {
+    if (!selectedDroneId) { showToast('Select a drone first'); return; }
+    const d = fleet.find(d => d.id === selectedDroneId);
+    if (!d) return;
+    d.waypoints.push({x:mx, y:my});
+    addLog(`${d.callsign} WP${d.waypoints.length} set at (${(mx*SCALE/1000).toFixed(2)}, ${(my*SCALE/1000).toFixed(2)})km`, 'ok');
+    updateAll();
+  } else if (mode === 'nfz') {
+    nfzZones.push({x:mx, y:my, r:45});
+    addLog(`NFZ placed at (${(mx*SCALE/1000).toFixed(2)}, ${(my*SCALE/1000).toFixed(2)})km`, 'warn');
+    updateAll();
+  } else if (mode === 'obstacle') {
+    obstacles.push({x:mx-15, y:my-15, w:30, h:30});
+    addLog('Obstacle placed', 'warn');
+    updateAll();
+  }
+});
+
+// ─── DRAW ───
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = '#1a1f28'; ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  ctx.fillStyle = '#252b38'; ctx.font = '9px Space Mono, monospace';
+  for (let x = 0; x < W; x += 200) ctx.fillText(`${(x*SCALE/1000).toFixed(1)}km`, x+3, 11);
+
+  // Wind field
+  const ws = parseFloat(document.getElementById('windSpeed').value);
+  const wd = parseFloat(document.getElementById('windDir').value) * Math.PI / 180;
+  if (ws > 0) {
+    ctx.strokeStyle = 'rgba(77,166,255,0.06)'; ctx.lineWidth = 1;
+    const al = Math.min(ws*2.5, 35);
+    for (let x=40;x<W;x+=90) for (let y=40;y<H;y+=90) {
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+Math.sin(wd)*al, y+Math.cos(wd)*al); ctx.stroke();
+    }
+  }
+
+  // Starlink mesh lines between flying drones
+  const flyingDrones = fleet.filter(d => d.status === 'flying' || d.status === 'online');
+  if (flyingDrones.length > 1 && simRunning) {
+    for (let i = 0; i < flyingDrones.length; i++) {
+      for (let j = i+1; j < flyingDrones.length; j++) {
+        const a = flyingDrones[i], b = flyingDrones[j];
+        if (!a.simEl || !b.simEl) continue;
+        const ax = parseFloat(a.simEl.style.left), ay = parseFloat(a.simEl.style.top);
+        const bx = parseFloat(b.simEl.style.left), by = parseFloat(b.simEl.style.top);
+        const wrapR = wrap.getBoundingClientRect();
+        const ax2 = ax - 0, ay2 = ay - 0;
+        const bx2 = bx - 0, by2 = by - 0;
+        ctx.beginPath(); ctx.moveTo(ax2, ay2); ctx.lineTo(bx2, by2);
+        const lspec = LINK_SPECS[a.linkType];
+        ctx.strokeStyle = lspec ? lspec.color + '55' : 'rgba(167,139,250,0.2)';
+        ctx.lineWidth = 1; ctx.setLineDash([4,6]); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // NFZ
+  nfzZones.forEach(z => {
+    ctx.beginPath(); ctx.arc(z.x,z.y,z.r,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,68,68,0.1)'; ctx.fill();
+    ctx.strokeStyle='rgba(255,68,68,0.45)'; ctx.lineWidth=1.5; ctx.setLineDash([5,4]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#ff4444'; ctx.font='bold 9px Space Mono,monospace'; ctx.fillText('NFZ',z.x-10,z.y+3);
+  });
+
+  // Obstacles
+  obstacles.forEach(o => {
+    ctx.fillStyle='rgba(255,140,0,0.15)'; ctx.fillRect(o.x,o.y,o.w,o.h);
+    ctx.strokeStyle='rgba(255,140,0,0.6)'; ctx.lineWidth=1.5; ctx.strokeRect(o.x,o.y,o.w,o.h);
+    ctx.fillStyle='#ff8c00'; ctx.font='11px sans-serif'; ctx.fillText('⚠',o.x+o.w/2-6,o.y+o.h/2+4);
+  });
+
+  // Per-drone routes & waypoints
+  fleet.forEach(drone => {
+    const wps = drone.waypoints;
+    const isSelected = drone.id === selectedDroneId;
+    const spec = drone.spec;
+    if (wps.length < 2) {
+      if (wps.length === 1) {
+        ctx.beginPath(); ctx.arc(wps[0].x, wps[0].y, 7, 0, Math.PI*2);
+        ctx.fillStyle = '#000'; ctx.fill();
+        ctx.strokeStyle = spec.color; ctx.lineWidth = isSelected ? 2.5 : 1.5; ctx.stroke();
+        ctx.fillStyle = spec.color; ctx.font = 'bold 9px Space Mono,monospace';
+        ctx.textAlign = 'center'; ctx.fillText('1', wps[0].x, wps[0].y+3); ctx.textAlign = 'left';
+      }
+      return;
+    }
+    // Route line with energy heatmap
+    for (let i = 0; i < wps.length-1; i++) {
+      const a = wps[i], b = wps[i+1];
+      const cost = segmentEnergyCost(a, b, drone);
+      const norm = Math.min(cost/30, 1);
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle = `rgba(${Math.round(norm*255)},${Math.round((1-norm)*200)},${Math.round((1-norm)*150)},${isSelected?0.95:0.4})`;
+      ctx.lineWidth = isSelected ? 3 : 1.5; ctx.stroke();
+      // Arrow
+      const mx2=(a.x+b.x)/2, my2=(a.y+b.y)/2, angle=Math.atan2(b.y-a.y,b.x-a.x);
+      ctx.save(); ctx.translate(mx2,my2); ctx.rotate(angle);
+      ctx.fillStyle = spec.color + (isSelected?'cc':'66');
+      ctx.beginPath(); ctx.moveTo(5,0); ctx.lineTo(-4,-3); ctx.lineTo(-4,3); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    // Waypoint dots
+    wps.forEach((wp,i) => {
+      ctx.beginPath(); ctx.arc(wp.x,wp.y,7,0,Math.PI*2);
+      ctx.fillStyle='#000'; ctx.fill();
+      ctx.strokeStyle = i===0 ? spec.color : i===wps.length-1 ? '#4da6ff' : spec.color;
+      ctx.lineWidth = isSelected ? 2.5 : 1.5; ctx.stroke();
+      ctx.fillStyle = spec.color; ctx.font='bold 9px Space Mono,monospace';
+      ctx.textAlign='center'; ctx.fillText(i+1, wp.x, wp.y+3); ctx.textAlign='left';
+    });
+    // Drone label near first waypoint
+    if (isSelected) {
+      ctx.fillStyle = spec.color;
+      ctx.font = '10px Space Mono, monospace';
+      ctx.fillText(drone.callsign, wps[0].x+10, wps[0].y-8);
+    }
+  });
+}
+
+// ─── FLEET MANAGEMENT ───
+function addDrone() {
+  const modelKey = document.getElementById('droneModel').value;
+  const callsign = document.getElementById('droneCallsign').value.trim().toUpperCase() || `DRONE-${nextDroneId}`;
+  const linkType = document.getElementById('droneLinkType').value;
+  const spec = DRONE_SPECS[modelKey];
+  const id = nextDroneId++;
+
+  const drone = { id, callsign, modelKey, spec, linkType, waypoints: [], simT: 0, simEl: null, battPct: 0, status: 'online' };
+  fleet.push(drone);
+  selectedDroneId = id;
+
+  document.getElementById('droneCallsign').value = '';
+  addLog(`${callsign} (${spec.name}) added — link: ${LINK_SPECS[linkType].name}`, 'starlink');
+  updateAll();
+  switchTab('fleet');
+  showToast(`${callsign} added — click map to place waypoints`);
+}
+
+function selectDrone(id) {
+  selectedDroneId = id;
+  const d = fleet.find(d => d.id === id);
+  document.getElementById('activeDroneLabel').textContent = d ? `${d.callsign} (${d.spec.name})` : '—';
+  updateDroneCards();
+  draw();
+}
+
+function removeDrone(id) {
+  const d = fleet.find(d => d.id === id);
+  if (d && d.simEl) { d.simEl.remove(); d.simEl = null; }
+  fleet = fleet.filter(d => d.id !== id);
+  if (selectedDroneId === id) selectedDroneId = fleet.length ? fleet[0].id : null;
+  if (selectedDroneId) document.getElementById('activeDroneLabel').textContent = fleet.find(d=>d.id===selectedDroneId)?.callsign || '—';
+  addLog(`Drone removed from fleet`, 'warn');
+  updateAll();
+}
+
+function updateDroneCards() {
+  document.getElementById('fleetCount').textContent = fleet.length;
+  const el = document.getElementById('droneCardList');
+  if (!fleet.length) {
+    el.innerHTML = '<div class="wp-empty" style="padding:12px 14px;">No drones in fleet — add one below</div>';
+    return;
+  }
+  el.innerHTML = fleet.map(d => {
+    const spec = d.spec;
+    const lspec = LINK_SPECS[d.linkType];
+    const isSelected = d.id === selectedDroneId;
+    const linkQ = Math.round(lspec.reliable * 100);
+    const statusClass = d.status === 'flying' ? 'flying' : d.status === 'online' ? 'online' : 'offline';
+    const battColor = d.battPct > 85 ? '#ff4444' : d.battPct > 65 ? '#ffb800' : '#00e5a0';
+    return `<div class="drone-card ${isSelected?'selected':''} ${d.status==='flying'?'flying':''}" onclick="selectDrone(${d.id})">
+      <div class="drone-card-header">
+        <div class="drone-icon" style="background:${spec.color}22;color:${spec.color}">${spec.icon}</div>
+        <div>
+          <div class="drone-name">${d.callsign}</div>
+          <div style="font-size:10px;color:var(--text3)">${spec.name}</div>
+        </div>
+        <div class="drone-badge ${statusClass}">${d.status.toUpperCase()}</div>
+        <div style="cursor:pointer;color:var(--text3);font-size:16px;margin-left:4px;" onclick="event.stopPropagation();removeDrone(${d.id})">×</div>
+      </div>
+      <div class="drone-meta">
+        <div class="drone-meta-item"><div class="drone-meta-label">Type</div><div class="drone-meta-val">${spec.type}</div></div>
+        <div class="drone-meta-item"><div class="drone-meta-label">Max payload</div><div class="drone-meta-val">${spec.maxPayload}kg</div></div>
+        <div class="drone-meta-item"><div class="drone-meta-label">Waypoints</div><div class="drone-meta-val">${d.waypoints.length}</div></div>
+        <div class="drone-meta-item"><div class="drone-meta-label">NDAA</div><div class="drone-meta-val" style="color:${spec.ndaa?'var(--accent)':'var(--warn)'}">${spec.ndaa?'✓ Yes':'⚠ No'}</div></div>
+      </div>
+      <div class="drone-link-row">
+        <div style="font-size:10px;color:${lspec.color};font-family:var(--mono);width:72px;flex-shrink:0">${lspec.name}</div>
+        <div class="link-bar-bg"><div class="link-bar-fill" style="width:${linkQ}%;background:${lspec.color}"></div></div>
+        <div class="link-label" style="color:${lspec.color}">${linkQ}%</div>
+      </div>
+      ${d.status==='flying'?`<div style="padding:4px 10px 6px;font-size:10px;font-family:var(--mono);color:${battColor}">BATT: ${d.battPct.toFixed(1)}% | ${lspec.latency}ms</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function updateMeshPanel() {
+  const nodeEl = document.getElementById('meshNodeList');
+  const linkEl = document.getElementById('linkMatrix');
+  if (!fleet.length) {
+    nodeEl.innerHTML = '<div class="wp-empty">Add drones in Fleet tab to see mesh</div>';
+    linkEl.innerHTML = '<div class="wp-empty">No active links</div>';
+    return;
+  }
+  nodeEl.innerHTML = fleet.map(d => {
+    const lspec = LINK_SPECS[d.linkType];
+    const latJitter = Math.round(lspec.latency * (0.9 + Math.random()*0.2));
+    const latClass = latJitter < 50 ? 'good' : latJitter < 200 ? 'ok' : 'bad';
+    return `<div class="mesh-node">
+      <div class="mesh-dot" style="background:${lspec.color}"></div>
+      <div class="mesh-info">
+        <div class="mesh-name">${d.callsign} <span style="font-size:9px;color:var(--text3)">(${d.spec.icon} ${d.spec.name})</span></div>
+        <div class="mesh-detail">${lspec.name} · ${lspec.bandwidth}Mbps · onboard: Jetson Orin</div>
+      </div>
+      <div class="mesh-latency ${latClass}">${latJitter}ms</div>
+    </div>`;
+  }).join('');
+
+  if (fleet.length < 2) { linkEl.innerHTML = '<div class="wp-empty">Need 2+ drones for inter-drone links</div>'; return; }
+  const links = [];
+  for (let i=0;i<fleet.length;i++) for (let j=i+1;j<fleet.length;j++) {
+    const a=fleet[i], b=fleet[j];
+    const lspec = LINK_SPECS[a.linkType];
+    const lat = Math.round((LINK_SPECS[a.linkType].latency + LINK_SPECS[b.linkType].latency) / 2 * (0.9+Math.random()*0.2));
+    links.push(`<div class="mesh-node">
+      <div class="mesh-dot" style="background:${lspec.color}"></div>
+      <div class="mesh-info">
+        <div class="mesh-name">${a.callsign} ↔ ${b.callsign}</div>
+        <div class="mesh-detail">via ${lspec.name} relay · MAVLink bridge</div>
+      </div>
+      <div class="mesh-latency ${lat<100?'good':lat<300?'ok':'bad'}">${lat}ms</div>
+    </div>`);
+  }
+  linkEl.innerHTML = links.join('');
+
+  // Starlink live stats flicker
+  document.getElementById('slSats').textContent = Math.round(10 + Math.random()*6);
+  document.getElementById('slDown').textContent = Math.round(250 + Math.random()*80) + ' Mbps';
+  document.getElementById('slLatency').textContent = Math.round(22 + Math.random()*15) + 'ms';
+}
+
+// ─── PHYSICS ───
+function segmentEnergyCost(a, b, drone) {
+  const dx=(b.x-a.x)*SCALE, dy=(b.y-a.y)*SCALE;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const heading=Math.atan2(dx,dy);
+  const windAngle=parseFloat(document.getElementById('windDir').value)*Math.PI/180;
+  const ws=parseFloat(document.getElementById('windSpeed').value);
+  const relWind=ws*Math.cos(heading-windAngle);
+  const effectiveSpeed=Math.max(drone.spec.maxSpeed-relWind*0.4, 2);
+  const payload=parseFloat(document.getElementById('payload').value);
+  const powerW=drone.spec.basePower + payload*8 + Math.max(relWind,0)*6;
+  const timeH=(dist/effectiveSpeed)/3600;
+  return powerW*timeH;
+}
+
+function calcMetrics(drone) {
+  const wps = drone.waypoints;
+  if (wps.length < 2) return null;
+  let totalDist=0, totalEnergy=0, totalTime=0;
+  for (let i=0;i<wps.length-1;i++) {
+    const a=wps[i], b=wps[i+1];
+    const dx=(b.x-a.x)*SCALE, dy=(b.y-a.y)*SCALE;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    totalDist+=dist;
+    const energy=segmentEnergyCost(a,b,drone);
+    totalEnergy+=energy;
+    const windAngle=parseFloat(document.getElementById('windDir').value)*Math.PI/180;
+    const ws=parseFloat(document.getElementById('windSpeed').value);
+    const heading=Math.atan2(dx,dy);
+    const relWind=ws*Math.cos(heading-windAngle);
+    const effectiveSpeed=Math.max(drone.spec.maxSpeed-relWind*0.4, 2);
+    totalTime+=dist/effectiveSpeed;
+  }
+  const battWh=(drone.spec.battery/1000)*drone.spec.voltage;
+  const battPct=Math.min((totalEnergy/battWh)*100,100);
+  return {totalDist,totalEnergy,totalTime,battPct};
+}
+
+// ─── HAZARDS ───
+function analyzeHazards() {
+  const hazards = [];
+  const ws=parseFloat(document.getElementById('windSpeed').value);
+  const alt=parseFloat(document.getElementById('altitude').value);
+  if (ws>15) hazards.push({icon:'🌬',text:`<strong>Wind ${ws}m/s</strong> — exceeds Part 108 safe ops limit.`});
+  if (alt>400) hazards.push({icon:'✈',text:`<strong>Altitude ${alt}m</strong> exceeds 400ft AGL — waiver required.`});
+  fleet.forEach(d => {
+    if (d.waypoints.length < 2) return;
+    for (let i=0;i<d.waypoints.length-1;i++) {
+      const a=d.waypoints[i], b=d.waypoints[i+1];
+      nfzZones.forEach(z => { if(lineCircleIntersect(a,b,z)) hazards.push({icon:'🚫',text:`<strong>${d.callsign} seg ${i+1}→${i+2}</strong> passes through NFZ.`}); });
+      obstacles.forEach(o => { if(lineRectIntersect(a,b,o)) hazards.push({icon:'⚠',text:`<strong>${d.callsign}</strong> obstacle on segment ${i+1}→${i+2}.`}); });
+    }
+    const m=calcMetrics(d);
+    if (m && m.battPct>85) hazards.push({icon:'🔋',text:`<strong>${d.callsign} battery critical</strong> — ${m.battPct.toFixed(0)}% needed, no RTL reserve.`});
+    if (!d.spec.ndaa) hazards.push({icon:'⚠',text:`<strong>${d.callsign}</strong> (${d.spec.name}) — not NDAA-compliant. Gov/defense ops blocked.`});
+  });
+  // Inter-drone link check
+  const starlinkCount = fleet.filter(d => d.linkType.startsWith('starlink')).length;
+  if (fleet.length > 3 && starlinkCount < fleet.length) hazards.push({icon:'📡',text:`<strong>Mixed links</strong> — ${fleet.length-starlinkCount} drone(s) not on Starlink. Mesh relay latency may exceed 500ms.`});
+  return hazards;
+}
+
+function lineCircleIntersect(a,b,c) {
+  const dx=b.x-a.x,dy=b.y-a.y,fx=a.x-c.x,fy=a.y-c.y;
+  const A=dx*dx+dy*dy,B=2*(fx*dx+fy*dy),C=fx*fx+fy*fy-c.r*c.r;
+  const disc=B*B-4*A*C; if(disc<0)return false;
+  const t1=(-B-Math.sqrt(disc))/(2*A),t2=(-B+Math.sqrt(disc))/(2*A);
+  return (t1>=0&&t1<=1)||(t2>=0&&t2<=1);
+}
+function lineRectIntersect(a,b,r) {
+  return !(Math.max(a.x,b.x)<r.x||Math.min(a.x,b.x)>r.x+r.w||Math.max(a.y,b.y)<r.y||Math.min(a.y,b.y)>r.y+r.h);
+}
+
+// ─── UI UPDATES ───
+function updateAll() {
+  updateDroneCards();
+  updateMeshPanel();
+  updateMetrics();
+  updateWPList();
+  updateHazards();
+  updateEnv();
+  draw();
+}
+
+function updateWPList() {
+  const d = fleet.find(d => d.id === selectedDroneId);
+  const el = document.getElementById('wpList');
+  const cnt = d ? d.waypoints.length : 0;
+  document.getElementById('wpCount').textContent = cnt;
+  document.getElementById('mWP').textContent = cnt;
+  if (!d || !d.waypoints.length) { el.innerHTML = '<div class="wp-empty">Select a drone, then click to place waypoints</div>'; return; }
+  el.innerHTML = d.waypoints.map((wp,i) =>
+    `<div class="wp-item">
+      <div class="wp-num" style="background:${d.spec.color}">${i+1}</div>
+      <div class="wp-coords">${(wp.x*SCALE/1000).toFixed(3)}, ${(wp.y*SCALE/1000).toFixed(3)} km</div>
+      <div class="wp-remove" onclick="removeWP(${i})">×</div>
+    </div>`).join('');
+}
+
+function updateMetrics() {
+  document.getElementById('altVal').textContent = `${document.getElementById('altitude').value} m`;
+  document.getElementById('payloadVal').textContent = `${parseFloat(document.getElementById('payload').value).toFixed(1)} kg`;
+  const d = fleet.find(d => d.id === selectedDroneId);
+  if (!d) { ['mDist','mTime','mEnergy'].forEach(id=>document.getElementById(id).textContent='—'); return; }
+  const m = calcMetrics(d);
+  if (!m) { ['mDist','mTime','mEnergy'].forEach(id=>document.getElementById(id).textContent='—'); document.getElementById('battBar').style.width='0%'; document.getElementById('battPct').textContent='—'; return; }
+  document.getElementById('mDist').textContent = m.totalDist>=1000?`${(m.totalDist/1000).toFixed(2)}km`:`${m.totalDist.toFixed(0)}m`;
+  const mins=Math.floor(m.totalTime/60),secs=Math.round(m.totalTime%60);
+  document.getElementById('mTime').textContent = `${mins}m ${secs}s`;
+  document.getElementById('mEnergy').textContent = `${m.totalEnergy.toFixed(1)} Wh`;
+  const pct=m.battPct;
+  const bar=document.getElementById('battBar');
+  bar.style.width=`${pct}%`; bar.style.background=pct>85?'#ff4444':pct>65?'#ffb800':'#00e5a0';
+  document.getElementById('battPct').textContent=`${pct.toFixed(1)}%`;
+}
+
+function updateEnv() {
+  const ws=parseFloat(document.getElementById('windSpeed').value);
+  const wd=parseFloat(document.getElementById('windDir').value);
+  document.getElementById('windSpeedVal').textContent=`${ws} m/s`;
+  const dirs=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  const dirName=dirs[Math.round(wd/22.5)%16];
+  document.getElementById('windDirVal').textContent=dirName;
+  document.getElementById('windArrow').style.transform=`translateX(-50%) translateY(-100%) rotate(${wd}deg)`;
+  document.getElementById('windInfo').innerHTML=`Speed: ${ws} m/s<br>Dir: ${wd}° ${dirName}<br>Beaufort: ${wsToBeaufort(ws)}`;
+}
+function wsToBeaufort(ws){if(ws<0.5)return'0(Calm)';if(ws<3.3)return'2(Breeze)';if(ws<7.9)return'4(Mod)';if(ws<10.7)return'5(Fresh)';if(ws<13.8)return'6(Strong)';return'7+(Gale)';}
+
+function updateHazards() {
+  const hazards=analyzeHazards();
+  const el=document.getElementById('hazardList');
+  const dot=document.getElementById('statusDot'), txt=document.getElementById('statusText');
+  if(!hazards.length){el.innerHTML='<div class="no-hazards">✓ No hazards detected</div>';dot.className='status-dot green';txt.textContent='READY';}
+  else{
+    const hasDanger=hazards.some(h=>h.text.includes('NFZ')||h.text.includes('critical')||h.text.includes('400ft'));
+    dot.className='status-dot '+(hasDanger?'red':'amber');txt.textContent=hasDanger?'BLOCKED':'CAUTION';
+    el.innerHTML=hazards.map(h=>`<div class="hazard-item"><div class="hazard-icon">${h.icon}</div><div class="hazard-text">${h.text}</div></div>`).join('');
+  }
+}
+
+// ─── SIMULATION ───
+function toggleSim() {
+  const hasDrones = fleet.some(d => d.waypoints.length >= 2);
+  if (!hasDrones) { showToast('Add drones with 2+ waypoints first'); return; }
+  simRunning ? stopSim() : startSim();
+}
+
+function startSim() {
+  simRunning = true;
+  document.getElementById('simBtn').textContent = '⏹ Stop';
+  document.getElementById('simBtn').classList.remove('primary');
+  document.getElementById('simBtn').classList.add('danger');
+  document.getElementById('statusDot').className = 'status-dot amber';
+  document.getElementById('statusText').textContent = 'FLYING';
+
+  fleet.forEach(d => {
+    if (d.waypoints.length < 2) return;
+    d.status = 'flying'; d.simT = 0;
+    if (!d.simEl) {
+      d.simEl = document.createElement('div');
+      d.simEl.className = 'sim-drone-el';
+      d.simEl.style.cssText = `width:11px;height:11px;background:${d.spec.color};border-radius:50%;box-shadow:0 0 8px ${d.spec.color};`;
+      wrap.appendChild(d.simEl);
+    }
+    d.simEl.style.display = 'block';
+    addLog(`${d.callsign} departing — ${LINK_SPECS[d.linkType].name} link active`, 'starlink');
+  });
+
+  animateSim();
+}
+
+function stopSim() {
+  simRunning = false;
+  if (simAnimId) cancelAnimationFrame(simAnimId);
+  fleet.forEach(d => {
+    d.status = 'online';
+    if (d.simEl) d.simEl.style.display = 'none';
+  });
+  document.getElementById('simBtn').textContent = '▶ Simulate Fleet';
+  document.getElementById('simBtn').classList.add('primary');
+  document.getElementById('simBtn').classList.remove('danger');
+  updateHazards();
+  updateDroneCards();
+}
+
+function animateSim() {
+  if (!simRunning) return;
+  const rect = canvas.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  const ws = parseFloat(document.getElementById('windSpeed').value);
+  const wd = parseFloat(document.getElementById('windDir').value) * Math.PI/180;
+
+  fleet.forEach(d => {
+    if (!d.simEl || d.waypoints.length < 2) return;
+    d.simT += 0.003 * (d.spec.maxSpeed / 15);
+
+    let segs=[], totalLen=0;
+    for(let i=0;i<d.waypoints.length-1;i++){
+      const a=d.waypoints[i],b=d.waypoints[i+1];
+      const dist=Math.sqrt((b.x-a.x)**2+(b.y-a.y)**2);
+      segs.push({a,b,dist}); totalLen+=dist;
+    }
+    const t = d.simT % 1;
+    let traveled = t * totalLen, x=d.waypoints[0].x, y=d.waypoints[0].y;
+    for(const seg of segs){
+      if(traveled<=seg.dist){const f=traveled/seg.dist;x=seg.a.x+(seg.b.x-seg.a.x)*f;y=seg.a.y+(seg.b.y-seg.a.y)*f;break;}
+      traveled-=seg.dist;
+    }
+    // Wind drift
+    const drift = ws * 0.2;
+    x += Math.sin(wd) * drift * Math.sin(Date.now()*0.003);
+    y += Math.cos(wd) * drift * Math.sin(Date.now()*0.003);
+
+    d.simEl.style.left = (x) + 'px';
+    d.simEl.style.top  = (y) + 'px';
+    d.simEl.style.boxShadow = `0 0 ${8+ws*0.4}px ${d.spec.color}`;
+
+    // Update battery sim
+    const m = calcMetrics(d);
+    if (m) d.battPct = m.battPct * t;
+  });
+
+  // Periodic comm log during sim
+  if (Math.random() < 0.008) {
+    const flyingD = fleet.filter(d => d.status === 'flying');
+    if (flyingD.length) {
+      const d = flyingD[Math.floor(Math.random()*flyingD.length)];
+      const lspec = LINK_SPECS[d.linkType];
+      const msgs = [
+        `${d.callsign} telemetry OK — ${lspec.latency+Math.round(Math.random()*10)}ms`,
+        `${d.callsign} → GCS: alt ${document.getElementById('altitude').value}m AGL`,
+        `Starlink handoff: SAT-${Math.round(10+Math.random()*8)} → SAT-${Math.round(10+Math.random()*8)}`,
+        `${d.callsign} battery: ${(d.battPct||0).toFixed(1)}%`,
+      ];
+      addLog(msgs[Math.floor(Math.random()*msgs.length)], 'starlink');
+    }
+  }
+
+  updateDroneCards();
+  draw();
+  simAnimId = requestAnimationFrame(animateSim);
+}
+
+// ─── LOG ───
+function addLog(msg, type='') {
+  const now = new Date();
+  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  logEntries.unshift({ts, msg, type});
+  if (logEntries.length > 100) logEntries.pop();
+  const el = document.getElementById('commLog');
+  el.innerHTML = logEntries.slice(0,50).map(e =>
+    `<div class="log-entry log-${e.type}"><span class="log-time">${e.ts}</span><span class="log-msg">${e.msg}</span></div>`
+  ).join('');
+}
+function clearLog() { logEntries=[]; document.getElementById('commLog').innerHTML=''; }
+
+// ─── UTILS ───
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const names=['fleet','route','mesh','log'];
+    t.classList.toggle('active', names[i]===name);
+  });
+  document.querySelectorAll('.tab-content').forEach(tc => {
+    tc.classList.toggle('active', tc.id===`tab-${name}`);
+  });
+  if (name==='mesh') { updateMeshPanel(); setTimeout(updateMeshPanel, 800); }
+}
+function setMode(m) {
+  mode=m;
+  document.getElementById('modeLabel').textContent=m;
+  ['modeWP','modeNFZ','modeOBS'].forEach(id=>document.getElementById(id).classList.remove('active'));
+  const map={waypoint:'modeWP',nfz:'modeNFZ',obstacle:'modeOBS'};
+  document.getElementById(map[m]).classList.add('active');
+}
+function removeWP(i) {
+  const d=fleet.find(d=>d.id===selectedDroneId); if(!d)return;
+  d.waypoints.splice(i,1); updateAll();
+}
+function clearAll() {
+  fleet.forEach(d=>{ if(d.simEl){d.simEl.remove();d.simEl=null;} });
+  fleet=[]; nfzZones=[]; obstacles=[]; selectedDroneId=null;
+  document.getElementById('activeDroneLabel').textContent='—';
+  stopSim(); updateAll();
+}
+function showToast(msg) {
+  const t=document.getElementById('toast'); t.textContent=msg;
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// Init
+addLog('BVLOS Fleet Planner v2.0 initialized', 'ok');
+addLog('Starlink mesh link established', 'starlink');
+addLog('MAVLink 2.0 protocol ready', 'ok');
+updateAll();
+</script>
+</body>
+</html>
